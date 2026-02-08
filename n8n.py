@@ -1,79 +1,95 @@
-# app.py
-
 import streamlit as st
 import requests
 from io import BytesIO
 import streamlit.components.v1 as components
 
-# ========== CONFIGURATION ==========
+# ---------- CONFIG ----------
 ELEVENLABS_API_KEY = "889605076af6a80e3fa46e8311765b253ef18b6c060c4c94057ba1ed4ff3278a"
 ELEVENLABS_VOICE_ID = "pCKbQ4EPGE06zpEPGNvS"
 N8N_WEBHOOK_URL = "https://mohammednabeel.app.n8n.cloud/webhook-test/c3e6a86b-12cd-44e9-b764-5200e302a562"
 
-# ========== STREAMLIT UI ==========
-st.set_page_config(page_title="ElevenLabs TTS + ConvAI + n8n", page_icon="🤖", layout="centered")
+# ---------- QUESTIONS ----------
+questions = [
+    "Hello! May I have your name, please?",
+    "What service do you need?",
+    "What date and time would you like your appointment?",
+    "Is this urgent or regular?"
+]
 
-st.title("🤖 ElevenLabs Text‑to‑Speech + ConvAI + n8n Integration")
-st.write("Enter text below to generate speech, trigger your n8n workflow, or interact with the embedded ConvAI agent.")
+# Store responses
+appointment = {}
 
-# ——— TEXT‑TO‑SPEECH SECTION ———
-st.header("🎧 Text‑to‑Speech Generator")
+st.set_page_config(page_title="AI Dental Receptionist", page_icon="🦷", layout="centered")
+st.title("🦷 AI Dental Receptionist (Voice)")
 
-text_input = st.text_area("Enter your text here:", height=150)
-
-if st.button("Generate TTS Audio"):
-    if not text_input.strip():
-        st.error("⚠️ Please enter some text first.")
+# ---------- FUNCTIONS ----------
+def generate_speech(text):
+    """Generates speech audio from ElevenLabs TTS"""
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+    headers = {"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}
+    payload = {"text": text}
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code == 200:
+        return response.content
     else:
-        with st.spinner("Generating audio…"):
-            try:
-                tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
-                headers = {
-                    "xi-api-key": ELEVENLABS_API_KEY,
-                    "Content-Type": "application/json"
-                }
-                payload = {"text": text_input}
+        st.error(f"TTS Error: {response.status_code}")
+        return None
 
-                response = requests.post(tts_url, headers=headers, json=payload)
+# ---------- VOICE CONVERSATION HTML ----------
+st.header("Voice Conversation")
+st.write("Click start, speak your answers, and the AI will guide you.")
 
-                if response.status_code == 200:
-                    audio_bytes = response.content
-                    st.success("✅ Audio generated!")
+convai_html = f"""
+<div id="conversation"></div>
+<button onclick="startConversation()">🎤 Start Conversation</button>
+<script>
+let questions = {questions};
+let responses = {{}};
+let i = 0;
 
-                    # play audio
-                    st.audio(audio_bytes, format="audio/mp3")
+async function speak(text) {{
+    const audioResp = await fetch('data:audio/mp3;base64,' + '{""}');
+}}
 
-                    # download button
-                    st.download_button(
-                        label="⬇️ Download Audio",
-                        data=BytesIO(audio_bytes),
-                        file_name="speech.mp3",
-                        mime="audio/mp3"
-                    )
+function startConversation() {{
+    nextQuestion();
+}}
 
-                    # send text to n8n webhook
-                    n8n_resp = requests.post(N8N_WEBHOOK_URL, json={"text": text_input})
-                    if n8n_resp.status_code in [200, 201]:
-                        st.info("🟢 n8n workflow triggered successfully!")
-                    else:
-                        st.warning(f"⚠️ n8n webhook failed (status {n8n_resp.status_code}).")
-                else:
-                    st.error(f"❌ TTS request failed (status {response.status_code}).")
-
-            except Exception as e:
-                st.error(f"⚠️ Error: {e}")
-
-st.markdown("---")
-
-# ——— ConvAI EMBED SECTION ———
-st.header("💬 ElevenLabs ConvAI Chatbot")
-
-convai_html = """
-<elevenlabs-convai agent-id="agent_3401kgwwqaecertangz4492v820c"></elevenlabs-convai>
-<script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async type="text/javascript"></script>
+function nextQuestion() {{
+    if (i < questions.length) {{
+        let q = questions[i];
+        // Display question
+        document.getElementById('conversation').innerHTML += `<b>AI:</b> ${q}<br>`;
+        
+        // Play TTS audio via Streamlit Python
+        fetch(`/tts?text=${encodeURIComponent(q)}`)
+            .then(response => response.blob())
+            .then(blob => {{
+                let audioURL = URL.createObjectURL(blob);
+                let audio = new Audio(audioURL);
+                audio.play();
+            }});
+        
+        // Capture voice after delay
+        setTimeout(() => {{
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'en-US';
+            recognition.start();
+            recognition.onresult = function(event) {{
+                const userSpeech = event.results[0][0].transcript;
+                responses[q] = userSpeech;
+                document.getElementById('conversation').innerHTML += `<b>You:</b> ${userSpeech}<br><br>`;
+                i++;
+                nextQuestion();
+            }};
+        }}, 4000);
+    }} else {{
+        // Send responses to Streamlit
+        fetch(`/submit?data=${encodeURIComponent(JSON.stringify(responses))}`)
+            .then(response => alert("✅ Appointment sent! Check your email."));
+    }}
+}}
+</script>
 """
 
 components.html(convai_html, height=600)
-
-st.markdown("---")
-st.markdown("Made with ❤️ using Streamlit, ElevenLabs, and n8n")
