@@ -5,7 +5,8 @@ import numpy as np
 
 # --- CONFIG ---
 # WARNING: Do not hardcode your key! Use st.secrets instead.
-API_KEY = st.secrets["AIzaSyACm6b0YTARMg4-m66-0m-r-J6TvAe77CU"] 
+# Change line 8 to this:
+API_KEY = st.secrets["GEMINI_API_KEY"] 
 client = genai.Client(api_key=API_KEY)
 
 st.title("🦷 AI Dental Receptionist")
