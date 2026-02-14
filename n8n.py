@@ -26,7 +26,7 @@ def play_wave(filename):
         sd.play(audio, samplerate=wf.getframerate())
         sd.wait()
 
-# ------------------- MAIN LOOP -------------------
+# --------------
 print("🦷 AI Dental Receptionist started. Say 'exit' to quit.")
 
 conversation = []
