@@ -1,54 +1,53 @@
-import streamlit as st
+from google import genai
+from google.genai import types
+import wave
+import simpleaudio as sa  # for playing audio
 
-st.set_page_config(page_title="Free AI Dental Receptionist", page_icon="🦷")
-st.title("🦷 Free AI Dental Receptionist (Browser Voice)")
+# ------------------- CONFIG -------------------
+API_KEY = "AIzaSyACm6b0YTARMg4-m66-0m-r-J6TvAe77CU"  # your Gemini API key
 
-questions = [
-    "Hello! May I have your name, please?",
-    "What service do you need?",
-    "What date and time would you like your appointment?",
-    "Is this urgent or regular?"
-]
+client = genai.Client(api_key=API_KEY)
 
-# Initialize session state
-if "responses" not in st.session_state:
-    st.session_state.responses = {}
-if "q_index" not in st.session_state:
-    st.session_state.q_index = 0
+# ------------------- FUNCTIONS -------------------
+def save_wave(filename, pcm, channels=1, rate=24000, sample_width=2):
+    """Save PCM audio to a WAV file"""
+    with wave.open(filename, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sample_width)
+        wf.setframerate(rate)
+        wf.writeframes(pcm)
+    print(f"Saved audio to {filename}")
 
-if st.session_state.q_index < len(questions):
-    q = questions[st.session_state.q_index]
-    st.markdown(f"**AI:** {q}")
+def play_wave(filename):
+    """Play WAV file"""
+    wave_obj = sa.WaveObject.from_wave_file(filename)
+    play_obj = wave_obj.play()
+    play_obj.wait_done()
 
-    # Browser TTS + Speech Recognition
-    st.components.v1.html(f"""
-    <button onclick="startConversation()">🎤 Start / Speak</button>
-    <p id="result"></p>
-    <script>
-    let question = `{q}`;
-    function speak(text){{
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = 'en-US';
-        speechSynthesis.speak(utter);
-    }}
-    function startConversation(){{
-        // Speak the question
-        speak(question);
-        // Start recognition
-        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-        recognition.lang = 'en-US';
-        recognition.start();
-        recognition.onresult = function(event){{
-            const transcript = event.results[0][0].transcript;
-            document.getElementById('result').innerText = 'You said: ' + transcript;
-            // Send transcript back to Streamlit via custom event
-            const streamlitEvent = new CustomEvent("voice_response", {{detail: transcript}});
-            window.dispatchEvent(streamlitEvent);
-        }};
-    }}
-    </script>
-    """, height=200)
-else:
-    st.success("✅ Conversation finished!")
-    st.write("Responses collected:")
-    st.write(st.session_state.responses)
+# ------------------- GENERATE AUDIO -------------------
+text_to_speak = "Say cheerfully: Have a wonderful day!"
+
+response = client.models.generate_content(
+    model="gemini-2.5-flash-preview-tts",
+    contents=text_to_speak,
+    config=types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name="Kore"  # you can try "Puck" or other Gemini voices
+                )
+            )
+        ),
+    )
+)
+
+# Get audio PCM data
+pcm_data = response.candidates[0].content.parts[0].inline_data.data
+
+# Save WAV
+file_name = "out.wav"
+save_wave(file_name, pcm_data)
+
+# Play audio
+play_wave(file_name)
