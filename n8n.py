@@ -1,10 +1,10 @@
 import streamlit as st
-import requests
+from gtts import gTTS
 import base64
+from io import BytesIO
 
-# ---------------- CONFIG ----------------
-ELEVENLABS_API_KEY = "889605076af6a80e3fa46e8311765b253ef18b6c060c4c94057ba1ed4ff3278a"
-ELEVENLABS_VOICE_ID = "pCKbQ4EPGE06zpEPGNvS"
+st.set_page_config(page_title="Free AI Dental Receptionist", page_icon="🦷")
+st.title("🦷 Free AI Dental Receptionist (Voice)")
 
 # Questions
 questions = [
@@ -14,74 +14,56 @@ questions = [
     "Is this urgent or regular?"
 ]
 
-st.set_page_config(page_title="AI Dental Receptionist", page_icon="🦷", layout="centered")
-st.title("🦷 AI Dental Receptionist (Voice)")
+# Initialize session state
+if "responses" not in st.session_state:
+    st.session_state.responses = {}
+if "q_index" not in st.session_state:
+    st.session_state.q_index = 0
 
-# ---------------- FUNCTIONS ----------------
-def generate_speech_base64(text):
-    """Generate TTS audio from ElevenLabs and return base64 string"""
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
-    headers = {"xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json"}
-    payload = {"text": text}
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code == 200:
-        return base64.b64encode(response.content).decode("utf-8")
-    else:
-        st.error(f"TTS Error: {response.status_code}")
-        return ""
+# Function to generate TTS audio as base64
+def tts_audio_base64(text):
+    tts = gTTS(text=text, lang='en')
+    fp = BytesIO()
+    tts.write_to_fp(fp)
+    fp.seek(0)
+    return base64.b64encode(fp.read()).decode()
 
-# ---------------- HTML + JS ----------------
-convai_html = f"""
-<div id="conversation" style="height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px;"></div>
-<button onclick="startConversation()">🎤 Start Conversation</button>
+# ---------------- Conversation Flow ----------------
+if st.session_state.q_index < len(questions):
+    q = questions[st.session_state.q_index]
+    st.markdown(f"**AI:** {q}")
 
-<script>
-let questions = {questions};
-let responses = {{}};
-let i = 0;
+    # Play AI voice
+    audio_b64 = tts_audio_base64(q)
+    audio_html = f"""
+    <audio autoplay>
+        <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
+    </audio>
+    """
+    st.components.v1.html(audio_html, height=50)
 
-// Function to play ElevenLabs TTS audio
-async function speak(text) {{
-    const base64Audio = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}`, {{
-        method: "POST",
-        headers: {{
-            "xi-api-key": "{ELEVENLABS_API_KEY}",
-            "Content-Type": "application/json"
-        }},
-        body: JSON.stringify({{text: text}})
-    }}).then(res => res.arrayBuffer())
-      .then(buffer => btoa(String.fromCharCode(...new Uint8Array(buffer))));
-    
-    const audio = new Audio('data:audio/mpeg;base64,' + base64Audio);
-    audio.play();
-    return new Promise(resolve => audio.onended = resolve);
-}}
-
-function startConversation() {{
-    nextQuestion();
-}}
-
-async function nextQuestion() {{
-    if (i < questions.length) {{
-        let q = questions[i];
-        document.getElementById('conversation').innerHTML += `<b>AI:</b> ${{q}}<br>`;
-        await speak(q);
-
+    # User voice input (using browser Speech Recognition via HTML + JS)
+    st.markdown("Click the button and speak your response:")
+    st.components.v1.html(f"""
+    <button onclick="startRecognition()">🎤 Speak</button>
+    <p id="result"></p>
+    <script>
+    function startRecognition(){{
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
         recognition.lang = 'en-US';
         recognition.start();
-        recognition.onresult = function(event) {{
-            const userSpeech = event.results[0][0].transcript;
-            responses[q] = userSpeech;
-            document.getElementById('conversation').innerHTML += `<b>You:</b> ${{userSpeech}}<br><br>`;
-            i++;
-            nextQuestion();
+        recognition.onresult = function(event){{
+            const text = event.results[0][0].transcript;
+            document.getElementById('result').innerText = 'You said: ' + text;
+            // Send text to Streamlit via Streamlit's custom event
+            const streamlitEvent = new CustomEvent("voice_response", {{detail: text}});
+            window.dispatchEvent(streamlitEvent);
         }};
-    }} else {{
-        alert("✅ Appointment completed! Responses: " + JSON.stringify(responses));
     }}
-}}
-</script>
-"""
+    </script>
+    """, height=100)
 
-st.components.v1.html(convai_html, height=500)
+else:
+    st.success("✅ Conversation finished!")
+    st.write("Responses collected:")
+    st.write(st.session_state.responses)
