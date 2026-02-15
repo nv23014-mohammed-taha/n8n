@@ -1,54 +1,105 @@
 import streamlit as st
-from google import genai
-from google.genai import types
-import numpy as np
+from openai import OpenAI
+import json
+from datetime import datetime
 
-# --- CONFIG ---
-# WARNING: Do not hardcode your key! Use st.secrets instead.
-# Change line 8 to this:
-API_KEY = st.secrets["GEMINI_API_KEY"] 
-client = genai.Client(api_key=API_KEY)
+# ---------------------------
+# CONFIG
+# ---------------------------
+st.set_page_config(page_title="AI Dental Receptionist", page_icon="🦷")
 
+# ---------------------------
+# Secure API Key from Streamlit Secrets
+# ---------------------------
+if "OPENAI_API_KEY" not in st.secrets:
+    st.error("OpenAI API key not found. Add it in Streamlit Cloud Secrets.")
+    st.stop()
+
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# ---------------------------
+# Session State (Simple CRM)
+# ---------------------------
+if "appointments" not in st.session_state:
+    st.session_state.appointments = []
+
+# ---------------------------
+# Intent Detection via GPT
+# ---------------------------
+def detect_intent(text):
+
+    prompt = f"""
+    Extract structured JSON:
+    {{
+        "intent": "book | cancel | reschedule | inquiry",
+        "name": "",
+        "date": "",
+        "time": ""
+    }}
+
+    Text: {text}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+
+    content = response.choices[0].message.content
+
+    try:
+        return json.loads(content)
+    except:
+        return {"intent": "inquiry"}
+
+# ---------------------------
+# UI
+# ---------------------------
 st.title("🦷 AI Dental Receptionist")
-st.write("Ask about appointments or dental care.")
+st.markdown("Simulate incoming patient call")
 
-# --- CHAT INTERFACE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+transcript = st.text_area("Caller says:")
 
-# Display chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+if st.button("Process Call"):
 
-# User Input
-if prompt := st.chat_input("How can I help you today?"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    if not transcript:
+        st.warning("Please enter caller message.")
+        st.stop()
 
-    # Generate AI response with TTS
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Kore")
-                        )
-                    ),
-                )
-            )
+    result = detect_intent(transcript)
+    intent = result.get("intent")
 
-            # Extract the audio data
-            # The SDK returns raw PCM or optimized audio bytes
-            audio_data = response.candidates[0].content.parts[0].inline_data.data
-            
-            st.write("Here is my response:")
-            # Use Streamlit's native audio player (works in browsers!)
-            st.audio(audio_data, format="audio/wav", autoplay=True)
-            
-            st.session_state.messages.append({"role": "assistant", "content": "Sent audio response."})
+    if intent == "book":
+        appointment = {
+            "name": result.get("name"),
+            "date": result.get("date"),
+            "time": result.get("time"),
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        st.session_state.appointments.append(appointment)
+        st.success("✅ Appointment Booked")
+
+    elif intent == "cancel":
+        if st.session_state.appointments:
+            st.session_state.appointments.pop()
+            st.warning("❌ Appointment Cancelled")
+        else:
+            st.info("No appointments found.")
+
+    elif intent == "reschedule":
+        st.info("🔁 Rescheduling logic placeholder.")
+
+    else:
+        st.info("ℹ️ General inquiry detected.")
+
+# ---------------------------
+# CRM Dashboard
+# ---------------------------
+st.divider()
+st.subheader("📋 Appointment Records")
+
+if st.session_state.appointments:
+    st.dataframe(st.session_state.appointments)
+else:
+    st.write("No appointments yet.")
